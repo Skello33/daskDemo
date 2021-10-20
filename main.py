@@ -83,7 +83,10 @@ def dask_main():
                                    'Distance': 'float64',
                                    'CRSElapsedTime': 'float64',
                                    'CancellationCode': 'object',
-                                   'TailNum': 'object'
+                                   'TailNum': 'object',
+                                   'AirTime': 'float64',
+                                   'TaxiIn': 'float64',
+                                   'TaxiOut': 'float64'
                                    })
 
     # print(df['CRSElapsedTime'].mean().compute())
