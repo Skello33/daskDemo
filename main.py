@@ -16,7 +16,8 @@ def demo_ops_dask(df: dd.DataFrame) -> dd.DataFrame:
     dep_del_mean = df['DepDelay'].mean()
     arr_del_mean = df['ArrDelay'].mean()
     mean_delay = df.groupby('Origin')['DepDelay'].mean()
-    dep_del_mean, arr_del_mean, mean_delay = compute(dep_del_mean, arr_del_mean, mean_delay)
+    dep_del_mean, arr_del_mean = compute(dep_del_mean, arr_del_mean)
+    mean_delay, = compute(mean_delay)
 
     print("Mean dep delay for ABE is {}".format(mean_delay['ABE']))
     print("Avg dep delay is {}".format(dep_del_mean))
@@ -113,17 +114,17 @@ if __name__ == '__main__':
     #     xtime=ti.timeit(stmt=pandas_more_files, number=runs, setup="gc.enable()")))
 
     # create a local cluster
-    client = Client(n_workers=4)
+    # client = Client(n_workers=4)
 
     # open the cluster dashboard in browser
     # webbrowser.open(client.dashboard_link, new=2, autoraise=True)
 
     # connect to a cluster
-    # client = Client('tcp://10.0.2.15:8786')
+    client = Client('tcp://10.0.2.15:8786')
     print(client.dashboard_link)
 
     print("Dask finished in {xtime} seconds.".format(
-        xtime=ti.timeit(stmt=dask_main, number=runs, setup="gc.enable()")))
+        xtime=ti.timeit(stmt=dask_main, number=runs)))
 
     # pandas_task()
 
