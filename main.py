@@ -1,5 +1,4 @@
 import timeit as ti
-import webbrowser
 from datetime import datetime
 import dask
 import dask.dataframe as dd
@@ -9,21 +8,39 @@ from dask import compute
 import pandas as pd
 import os
 from glob import glob
+import numpy as np
+from functools import lru_cache
+import plotly.express as px
 
 
-def reformat_time(time: str) -> datetime.time:
+@lru_cache()
+def correct_time_cols(time):
     if time == '2400':
         time = '2359'
     if len(time) != 4:
         time = ''.join(('000', time))
         time = time[-4:]
-    # try:
-    #     result = datetime.strptime(time, '%H%M').time()
-    # except ValueError:
-    #     print(time)
-    #     exit()
-    # print(time)
-    return datetime.strptime(time, '%H%M').time()
+    return time
+
+
+# exit()
+
+# return datetime.strptime(time, '%H%M').time()
+# return pd.to_datetime(time, format='%H%M').time()
+
+
+@lru_cache(maxsize=1024)
+def reformat_time(time: str) -> datetime.time:
+    try:
+        return datetime.strptime(time, '%H%M').time()
+    except ValueError as ve:
+        if time == '2400':
+            return datetime.strptime('2359', '%H%M').time()
+        elif len(time) == 1:
+            time = ''.join(('0', time))
+            return datetime.strptime(time, '%H%M').time()
+        else:
+            print(ve)
 
 
 def demo_ops_dask(df: dd.DataFrame) -> dd.DataFrame:
@@ -31,39 +48,42 @@ def demo_ops_dask(df: dd.DataFrame) -> dd.DataFrame:
     # departure delays avg
     dep_del_mean = df['DepDelay'].mean()
     # arrival delays avg
-    arr_del_mean = df['ArrDelay'].mean()
+    # arr_del_mean = df['ArrDelay'].mean()
     # avg arrival delays by Origin of flight
-    mean_delay = df.groupby('Origin')['DepDelay'].mean()
+    origin_delay = df.groupby('Origin')['DepDelay'].mean()
     # the day with lowest avg delay
     day_delay = df.groupby('DayOfWeek')['DepDelay'].mean()
 
     # compute the results in parallel, might need some modification based on the size of data and machines memory
-    mean_delay, dep_del_mean, day_delay = compute(mean_delay, dep_del_mean, day_delay)
-    # day_delay,  = compute(day_delay)
+    # mean_delay, dep_del_mean, day_delay = compute(mean_delay, dep_del_mean, day_delay)
+    day_delay, dep_del_mean = compute(day_delay, dep_del_mean)
     # dep_del_mean, = compute(dep_del_mean)
+    origin_delay, = compute(origin_delay)
     # dep_del_mean, arr_del_mean = compute(dep_del_mean, arr_del_mean)
 
     # control prints
-    print("Avg dep delay for ABE is {}".format(mean_delay['ABE']))
+    print("Avg dep delay for JFK is {}".format(origin_delay['JFK']))
     print("Avg dep delay is {}".format(dep_del_mean))
     # print("Avg arr delay is {}".format(arr_del_mean))
-    print("Avg day delays:\n{}".format(day_delay.sort_values()))
+    print("Avg day delays:\n{}".format(day_delay.sort_values(ascending=False)))
     return df
 
 
 def demo_ops_pandas(df: pd.DataFrame) -> list:
     """function with demo tasks using pandas"""
     dep_group = df.groupby('Origin')
-    # data for ABE airport departure delay avg
-    abe_delay_cnt = dep_group['DepDelay'].count()['ABE']
-    abe_delay_sum = dep_group['DepDelay'].sum()['ABE']
+    result = []
+    # data for JFK airport departure delay avg
+    result.append(dep_group['DepDelay'].count()['JFK'])
+    result.append(dep_group['DepDelay'].sum()['JFK'])
     # data for avg departure delay
-    dep_delay_cnt = df['DepDelay'].count()
-    dep_delay_sum = df['DepDelay'].sum()
-    day_group = df.groupby('DayOfWeek')['DepDelay'].mean()
+    result.append(df['DepDelay'].count())
+    result.append(df['DepDelay'].sum())
+    day_group = df.groupby('DayOfWeek')
+    result.append(day_group['DepDelay'].sum().tolist())
+    result.append(day_group['DepDelay'].count().tolist())
 
-    return [abe_delay_cnt, abe_delay_sum, dep_delay_cnt, dep_delay_sum, day_group]
-    # return [abe_delay_cnt, abe_delay_sum]
+    return result
 
 
 def pandas_task():
@@ -78,7 +98,7 @@ def pandas_task():
 def pandas_more_files():
     # start_time = ti.default_timer()
 
-    files = glob(os.path.join('data', 'DataExpo2009', 'years_to_compute', '*.csv'))
+    files = glob(os.path.join('data', 'DataExpo2009', 'years_to_compute', '2008.csv'))
     # print("pandas files: {}".format(files))
     # file_count = len(files)
     cols = ['Year', 'Month', 'DayofMonth', 'DayOfWeek', 'DepDelay', 'CRSDepTime', 'Origin', 'Dest',
@@ -88,26 +108,46 @@ def pandas_more_files():
                   'Year': 'string',
                   'Month': 'string',
                   'DayofMonth': 'string'}
-    abe_cnt, abe_sum, del_cnt, del_sum, day_delay = [], [], [], [], []
+    # lists for intermediate results when working over multiple files
+    jfk_cnt, jfk_sum, del_cnt, del_sum, day_sums, day_counts = [], [], [], [], [], [],
+    day_result_sum, day_result_cnt = [0 for _ in range(7)], [0 for _ in range(7)]
+    day_results = {'day': [], 'avgDelay': []}
     for file in files:
-        print("reading file {}".format(file))
-
+        # print("reading file {}".format(file))
         res = pd.read_csv(file, encoding_errors='replace', usecols=cols,
                           dtype=types_dict)
+        # res['CRSDepTime'] = res['CRSDepTime'].apply(reformat_time)
         res = demo_ops_pandas(res)
 
-        abe_cnt.append(res[0])
-        abe_sum.append(res[1])
+        jfk_cnt.append(res[0])
+        jfk_sum.append(res[1])
         if len(res) > 2:
             del_cnt.append(res[2])
             del_sum.append(res[3])
-            day_delay.append(res[4])
-    print("Average departure delay for ABE is {}".format(sum(abe_sum) / sum(abe_cnt)))
+            day_sums.append(res[4])
+            day_counts.append(res[5])
+    print("Average departure delay for JFK is {}".format(sum(jfk_sum) / sum(jfk_cnt)))
     if len(del_cnt):
-        print("Average departure delay is {}".format(sum(del_sum) / sum(del_cnt)))
-    if len(day_delay):
-        print("Avg day delays:\n{}".format(day_delay))
+        print("Average departure delay of all flights is {}".format(sum(del_sum) / sum(del_cnt)))
+    # calculate avg departure delay for each day
+    for sums in day_sums:
+        for idx, day in enumerate(sums):
+            day_result_sum[idx] += day
+    for counts in day_counts:
+        for idx, day in enumerate(counts):
+            day_result_cnt[idx] += day
+    counter = 1
+    for sums, counts in zip(day_result_sum, day_result_cnt):
+        day_results['day'].append(counter)
+        day_results['avgDelay'].append(sums / counts)
+        counter += 1
+    day_results = pd.DataFrame(day_results)
+    day_results.set_index('day', inplace=True)
+    fig = px.bar(day_results)
+    fig.show()
+    # todo enhance the graph, add the graph to other results, push to github and create readme.md
     # print("Pandas task took {} seconds.".format(ti.default_timer() - start_time))
+    # print(reformat_time.cache_info())
 
 
 def dask_main():
@@ -134,7 +174,7 @@ def dask_main():
     # df = df.rename(columns={'Year_Month_DayofMonth': 'Date'})
 
     df = dd.read_csv(files, encoding_errors='replace', dtype=col_types, usecols=cols)
-    df['CRSDepTime'] = df['CRSDepTime'].apply(reformat_time, meta='datetime.time')
+    # df['CRSDepTime'] = df['CRSDepTime'].apply(reformat_time, meta='datetime.time')
     # print(df['CRSDepTime'].head())
 
     # df['Date'] = (pd.to_datetime(df['Year'].astype(str) + '-' +
@@ -147,6 +187,7 @@ def dask_main():
     # call demo functions on the dataframe
     demo_ops_dask(df)
     # print("Dask took {} seconds.".format(ti.default_timer() - start_time))
+    print(reformat_time.cache_info())
 
 
 def pandas_main():
@@ -168,7 +209,7 @@ if __name__ == '__main__':
     runs = 1
     print("Pandas finished in {xtime} seconds.".format(
         xtime=ti.timeit(stmt=pandas_more_files, number=runs, setup="gc.enable()")))
-
+    exit()
     # create a local cluster
     client, kill_client = Client(n_workers=4), True
 
