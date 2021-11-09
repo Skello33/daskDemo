@@ -1,14 +1,10 @@
 import argparse
-import getopt
-import os
-import sys
 import timeit as ti
 from datetime import datetime
 from glob import glob
 from functools import lru_cache
 
 import dask.dataframe as dd
-import dask
 from dask.distributed import Client
 from dask import compute
 
@@ -16,6 +12,8 @@ import pandas as pd
 # import modin.pandas as pd
 
 import plotly.express as px
+
+import resource
 
 import ctypes
 
@@ -158,6 +156,26 @@ def pandas_more_files():
     # todo enhance the graph, add the graph to other results, push to github and create readme.md
     # print("Pandas task took {} seconds.".format(ti.default_timer() - start_time))
     # print(reformat_time.cache_info())
+    usage_self = resource.getrusage(resource.RUSAGE_SELF)
+    print('user mode time = {}s'.format(usage_self.ru_utime))
+    print('max resident size used = {}kB'.format(usage_self.ru_maxrss))
+    # print('thread = {}'.format(resource.getrusage(resource.RUSAGE_THREAD)))
+    # print('children = {}'.format(resource.getrusage(resource.RUSAGE_CHILDREN)))
+
+
+def pandas_main(runs: int):
+    """
+    runs the pandas task n times
+    :param runs: specifies how many times the task should be run
+    """
+    if runs is None or runs == 1:
+        pandas_more_files()
+    elif runs > 1:
+        print("Pandas finished in {xtime} seconds.".format(
+            xtime=ti.timeit(stmt=pandas_more_files, number=runs, globals=globals())))
+    else:
+        ve = ValueError('Invalid number of runs specified. Please provide an integer higher than 0.')
+        raise ve
 
 
 def dask_task():
@@ -214,6 +232,7 @@ def dask_task():
 def dask_main(arguments):
     """
     runs the dask task either on local cluster or on a remote one and measures the execution time
+    :param arguments: program cmd line arguments
     """
     try:
         cluster = arguments.cluster
@@ -229,9 +248,19 @@ def dask_main(arguments):
 
     # client.run(trim_memory)
 
-    print("Dask finished in {xtime} seconds.".format(
-        xtime=ti.timeit(stmt=dask_task, number=arguments.runs, globals=globals())))
+    if arguments.runs is None or arguments.runs == 1:
+        dask_task()
+    elif arguments.runs > 1:
+        print("Dask finished in {xtime} seconds.".format(
+            xtime=ti.timeit(stmt=dask_task, number=arguments.runs, globals=globals())))
+    else:
+        ve = ValueError('Invalid number of runs specified. Please provide an integer higher than 0.')
+        raise ve
 
+    # print some basic usage info
+    usage_self = resource.getrusage(resource.RUSAGE_SELF)
+    print('user mode time = {}s'.format(usage_self.ru_utime))
+    print('max resident size used = {}kB'.format(usage_self.ru_maxrss))
     # close the local cluster
     try:
         kill_client
@@ -248,7 +277,7 @@ def create_arg_parser() -> argparse.ArgumentParser:
     """
     new_parser = argparse.ArgumentParser(description='Demo dask & pandas task')
     new_parser.add_argument('-p', '--path', type=str, required=True, help='path to the file with dataset')
-    new_parser.add_argument('-r', '--runs', type=int, required=True, help='number of program runs')
+    new_parser.add_argument('-r', '--runs', type=int, required=False, help='number of program runs')
     new_parser.add_argument('--cluster', type=str, required=False,
                             help='address of the remote cluster that should be used, if not specified, program uses a '
                                  'locally created cluster')
@@ -270,13 +299,13 @@ if __name__ == '__main__':
     parser = create_arg_parser()
     args = parser.parse_args()
     path = args.path
+
+    """decide what task to launch"""
     if args.task == 'pandas':
-        print("Pandas finished in {xtime} seconds.".format(
-            xtime=ti.timeit(stmt=pandas_more_files, number=args.runs, globals=globals())))
+        pandas_main(args.runs)
     elif args.task == 'dask':
         dask_main(args)
     elif args.task is None:
         # task not specified, execute both
-        print("Pandas finished in {xtime} seconds.".format(
-            xtime=ti.timeit(stmt=pandas_more_files, number=args.runs, globals=globals())))
+        pandas_main(args.runs)
         dask_main(args)
