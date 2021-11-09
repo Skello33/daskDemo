@@ -1,4 +1,6 @@
+import argparse
 import getopt
+import os
 import sys
 import timeit as ti
 from datetime import datetime
@@ -6,19 +8,25 @@ from glob import glob
 from functools import lru_cache
 
 import dask.dataframe as dd
+import dask
 from dask.distributed import Client
 from dask import compute
 
 import pandas as pd
+# import modin.pandas as pd
 
 import plotly.express as px
 
+import ctypes
 
-@lru_cache(maxsize=1024)    # added cache for increased performance
+
+@lru_cache(maxsize=1024)  # added cache for increased performance
 def reformat_time(time: str) -> datetime.time:
     """
     function converts time columns into datetime.time() and handles exceptions where the time value is specified
     in wrong format
+    :param time: string for time conversion
+    :returns: datetime.time object with converted time
     """
     try:
         return datetime.strptime(time, '%H%M').time()
@@ -52,7 +60,7 @@ def demo_ops_dask(df: dd.DataFrame):
     # day_delay, = compute(day_delay)
     # dep_del_mean, = compute(dep_del_mean)
     # origin_delay, = compute(origin_delay)
-    # dep_del_mean, arr_del_mean = compute(dep_del_mean, arr_del_mean)
+    # dep_del_mean, day_delay = compute(dep_del_mean, day_delay)
 
     # control prints
     print("Avg dep delay for JFK is {}".format(origin_delay['JFK']))
@@ -89,11 +97,10 @@ def pandas_more_files():
     main pandas function
     """
     # start_time = ti.default_timer()
-
     files = glob(path)
     if not len(files):
-        print('No files found on the specified path.')
-        usage()
+        print('No files found on the specified path: {}'.format(path))
+        parser.print_help()
         exit(0)
     # pandas read options
     cols = ['Year', 'Month', 'DayofMonth', 'DayOfWeek', 'DepDelay', 'CRSDepTime', 'Origin', 'Dest',
@@ -106,7 +113,9 @@ def pandas_more_files():
 
     # lists for intermediate results when working over multiple files
     jfk_cnt, jfk_sum, del_cnt, del_sum, day_sums, day_counts = [], [], [], [], [], [],
-    day_result_sum, day_result_cnt = [0 for _ in range(7)], [0 for _ in range(7)]
+    # day_result_sum, day_result_cnt = [0 for _ in range(7)], [0 for _ in range(7)]
+    day_result_sum = [0 for _ in range(7)]
+    day_result_cnt = day_result_sum.copy()
     day_results = {'day': [], 'avgDelay': []}
 
     # read in the files one by one
@@ -142,24 +151,24 @@ def pandas_more_files():
         counter += 1
     day_results = pd.DataFrame(day_results)
     day_results.set_index('day', inplace=True)
-    fig = px.bar(day_results, color='avgDelay', y='avgDelay', hover_data=['avgDelay'], height=500,
-                 labels={'avgDelay': 'Average departure delay (minutes)',
-                         'day': 'Day of week'})
-    fig.show()
+    # fig = px.bar(day_results, color='avgDelay', y='avgDelay', hover_data=['avgDelay'], height=500,
+    #              labels={'avgDelay': 'Average departure delay (minutes)',
+    #                      'day': 'Day of week'})
+    # fig.show()
     # todo enhance the graph, add the graph to other results, push to github and create readme.md
     # print("Pandas task took {} seconds.".format(ti.default_timer() - start_time))
     # print(reformat_time.cache_info())
 
 
-def dask_main():
+def dask_task():
     """
     main dask function
     """
     # start_time = ti.default_timer()
     files = glob(path)
     if not len(files):
-        print('No files found on the specified path.')
-        usage()
+        print('No files found on the specified path: {}'.format(path))
+        parser.print_help()
         exit(0)
     cols = ['Year', 'Month', 'DayofMonth', 'Month', 'DayOfWeek', 'DepDelay', 'CRSDepTime', 'Origin', 'Dest',
             'ArrDelay']
@@ -196,77 +205,32 @@ def dask_main():
 
     # call demo functions on the dataframe
     demo_ops_dask(df)
+    # client.run(trim_memory)
     # print("Dask took {} seconds.".format(ti.default_timer() - start_time))
 
-    # print reformat_time cache info
     # print(reformat_time.cache_info())
 
 
-def usage():
+def dask_main(arguments):
     """
-    print program usage
-    """
-    print('Dask + pandas demo program.\n'
-          'Options:\n'
-          '-h --help\tdisplay this help and exit the program\n'
-          '-r --runs\tspecify the number of runs for each task\n'
-          '-p --path\tspecify the path to the dataset files\n'
-          'Usage:\n'
-          'python daskDemo.py <-h | -p \'path\' -r number>')
-
-
-def parse_options() -> (int, str):
-    """
-    function for command line options parsing
-    :return: pair runs, path
+    runs the dask task either on local cluster or on a remote one and measures the execution time
     """
     try:
-        opts, args = getopt.getopt(sys.argv[1:], '-h -r: -p:', longopts=['help', 'runs=', 'path='])
-    except getopt.GetoptError as ge:
-        print(ge)
-        usage()
-        exit(2)
-    for o, a in opts:
-        if o in ('-h', '--help'):
-            usage()
-            exit(0)
-        elif o in ('-r', '--runs'):
-            try:
-                runs = int(a)
-            except ValueError as ve:
-                print('Invalid number of runs: {}. Please give an integer.'.format(a))
-                usage()
-                exit(2)
-        elif o in ('-p', '--path'):
-            path = a
-    try:
-        path, runs
-    except NameError as ne:
-        print(ne)
-        usage()
-        exit(2)
-    return runs, path
-
-
-if __name__ == '__main__':
-
-    runs, path = parse_options()
-    # PANDAS
-    print("Pandas finished in {xtime} seconds.".format(
-        xtime=ti.timeit(stmt=pandas_more_files, number=runs, globals=globals())))
-    # DASK
-    # create a local cluster
-    client, kill_client = Client(n_workers=4), True
-
+        cluster = arguments.cluster
+        # connect to a remote cluster - need to start with start_cluster.sh or manually
+        client = Client(cluster)
+    except NameError:
+        # create a local cluster
+        client, kill_client = Client(n_workers=4), True
+    finally:
+        print('Cluster dashboard running on: {}'.format(client.dashboard_link))
     # open the cluster dashboard in browser
     # webbrowser.open(client.dashboard_link, new=2, autoraise=True)
 
-    # connect to a remote cluster - need to start with start_cluster.sh or manually
-    # client = Client('tcp://10.0.2.15:8786')
-    print('Cluster dashboard running on: {}'.format(client.dashboard_link))
+    # client.run(trim_memory)
 
     print("Dask finished in {xtime} seconds.".format(
-        xtime=ti.timeit(stmt=dask_main, number=runs, globals=globals())))
+        xtime=ti.timeit(stmt=dask_task, number=arguments.runs, globals=globals())))
 
     # close the local cluster
     try:
@@ -275,3 +239,44 @@ if __name__ == '__main__':
         exit(0)
     else:
         client.close()
+
+
+def create_arg_parser() -> argparse.ArgumentParser:
+    """
+    create command line arguments parser
+    :return: cmd arguments parser
+    """
+    new_parser = argparse.ArgumentParser(description='Demo dask & pandas task')
+    new_parser.add_argument('-p', '--path', type=str, required=True, help='path to the file with dataset')
+    new_parser.add_argument('-r', '--runs', type=int, required=True, help='number of program runs')
+    new_parser.add_argument('--cluster', type=str, required=False,
+                            help='address of the remote cluster that should be used, if not specified, program uses a '
+                                 'locally created cluster')
+    new_parser.add_argument('--task', type=str, required=False,
+                            help='specify which task to execute, if not specified, all tasks will be run',
+                            choices=['pandas', 'dask'])
+    return new_parser
+
+
+def trim_memory() -> int:
+    """function for trimming unused worker memory"""
+    libc = ctypes.CDLL("libc.so.6")
+    return libc.malloc_trim(0)
+
+
+if __name__ == '__main__':
+
+    """parse the cmd options"""
+    parser = create_arg_parser()
+    args = parser.parse_args()
+    path = args.path
+    if args.task == 'pandas':
+        print("Pandas finished in {xtime} seconds.".format(
+            xtime=ti.timeit(stmt=pandas_more_files, number=args.runs, globals=globals())))
+    elif args.task == 'dask':
+        dask_main(args)
+    elif args.task is None:
+        # task not specified, execute both
+        print("Pandas finished in {xtime} seconds.".format(
+            xtime=ti.timeit(stmt=pandas_more_files, number=args.runs, globals=globals())))
+        dask_main(args)
