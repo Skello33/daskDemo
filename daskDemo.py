@@ -23,6 +23,7 @@ def reformat_time(time: str) -> datetime.time:
     """
     function converts time columns into datetime.time() and handles exceptions where the time value is specified
     in wrong format
+
     :param time: string for time conversion
     :returns: datetime.time object with converted time
     """
@@ -42,6 +43,7 @@ def reformat_time(time: str) -> datetime.time:
 def demo_ops_dask(df: dd.DataFrame):
     """
     function with demo tasks using dask
+
     :param df: dataframe for demo tasks
     """
     # departure delays avg
@@ -70,6 +72,7 @@ def demo_ops_dask(df: dd.DataFrame):
 def demo_ops_pandas(df: pd.DataFrame) -> list:
     """
     function with demo tasks using pandas
+
     :param df: dataframe for demo tasks
     :return: list of lists containing results of demo task
     """
@@ -166,6 +169,7 @@ def pandas_more_files():
 def pandas_main(runs: int):
     """
     runs the pandas task n times
+
     :param runs: specifies how many times the task should be run
     """
     if runs is None or runs == 1:
@@ -232,6 +236,7 @@ def dask_task():
 def dask_main(arguments):
     """
     runs the dask task either on local cluster or on a remote one and measures the execution time
+
     :param arguments: program cmd line arguments
     """
     try:
@@ -273,6 +278,7 @@ def dask_main(arguments):
 def create_arg_parser() -> argparse.ArgumentParser:
     """
     create command line arguments parser
+
     :return: cmd arguments parser
     """
     new_parser = argparse.ArgumentParser(description='Demo dask & pandas task')
